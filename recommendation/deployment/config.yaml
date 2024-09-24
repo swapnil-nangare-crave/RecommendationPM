@@ -1,0 +1,88 @@
+# your-registry -------------------> docker registry
+
+
+apiVersion: v1
+kind: RecommendationPipeline
+metadata:
+  name: predictive-maintenance-recommendation
+  description: Predictive Maintenance Recommendation workflow for SAP AI Core
+spec:
+  version: "1.0.0"
+
+components:
+  - name: data-preprocessing
+    image: your-registry/data-preprocessing-image:latest
+    command:
+      - python
+      - preprocessing/preprocess.py
+    environment:
+      - RAW_DATA: data/raw_data/
+      - PROCESSED_DATA: data/processed_data/
+    resources:
+      limits:
+        cpu: "1"
+        memory: "4Gi"
+
+  - name: recommendation-model-training
+    image: your-registry/recommendation-model-training-image:latest
+    command:
+      - python
+      - models/train_model.py
+    environment:
+      - PROCESSED_DATA: data/processed_data/
+      - MODEL_OUTPUT: models/
+    resources:
+      limits:
+        cpu: "4"
+        memory: "16Gi"
+    dependencies:
+      - data-preprocessing
+
+  - name: recommendation-model-evaluation
+    image: your-registry/recommendation-model-evaluation-image:latest
+    command:
+      - python
+      - models/evaluate_model.py
+    environment:
+      - MODEL_PATH: models/
+      - EVALUATION_REPORT: models/evaluation_report/
+    resources:
+      limits:
+        cpu: "2"
+        memory: "8Gi"
+    dependencies:
+      - recommendation-model-training
+
+  - name: deployment
+    image: your-registry/recommendation-deployment-image:latest
+    command:
+      - python
+      - deployment/deploy_model.py
+    environment:
+      - MODEL_PATH: models/
+      - DEPLOYMENT_TARGET: sap-aicore-recommendation-deployment
+    resources:
+      limits:
+        cpu: "1"
+        memory: "4Gi"
+    dependencies:
+      - recommendation-model-evaluation
+
+runtime:
+  namespace: sap-ai-core-runtime
+  resources:
+    - name: gpu
+      count: 1
+
+jobs:
+  - name: recommendation-pipeline-job
+    schedule: "0 1 * * *"  # Runs daily at 1 AM
+    steps:
+      - name: run-preprocessing
+        component: data-preprocessing
+      - name: run-training
+        component: recommendation-model-training
+      - name: run-evaluation
+        component: recommendation-model-evaluation
+      - name: run-deployment
+        component: deployment
